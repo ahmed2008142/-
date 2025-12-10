@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>اختبار الهيكل والدعامة (تخزين محلي)</title>
+    <title>اختبار الهيكل والدعامة (استلام الشهادة)</title>
     <!-- تحميل Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -41,31 +41,19 @@
             border-color: #2563eb;
             background-color: #eff6ff;
         }
-        /* تصميم الشهادة */
-        #certificate {
-            background: linear-gradient(135deg, #fefce8 0%, #fff7d6 100%);
-            border: 15px solid #d4af37; /* Gold border */
+        /* تصميم رسالة الشهادة */
+        #certificate-request {
+            background: linear-gradient(135deg, #e0f2fe 0%, #bfdbfe 100%); /* Light blue gradient */
+            border: 5px solid #3b82f6; /* Blue border */
             padding: 3rem;
             text-align: center;
             border-radius: 1rem;
             position: relative;
         }
-        .certificate-ribbon {
-            position: absolute;
-            top: -10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #d4af37;
-            color: white;
-            padding: 0.25rem 1.5rem;
-            border-radius: 0 0 10px 10px;
-            font-weight: bold;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-        }
-        /* تصميم جدول النتائج ليتناسب مع الهواتف */
-        .results-table-wrapper {
-            max-height: 400px;
-            overflow-y: auto;
+        .certificate-icon {
+            font-size: 4rem;
+            color: #1d4ed8;
+            margin-bottom: 1rem;
         }
     </style>
 </head>
@@ -73,54 +61,75 @@
 
     <div class="container mx-auto">
         <div id="quiz-container" class="card">
-            <!-- سيتم تحميل المحتوى هنا (النموذج، الأسئلة، الشهادة) -->
+            <p id="loading-status" class="text-center text-gray-500">جاري تهيئة الاتصال...</p>
         </div>
-        <p id="storageStatus" class="text-xs text-gray-500 mt-2 text-center">يتم حفظ النتائج محليًا على جهازك (Local Storage)</p>
+        <p id="storageStatus" class="text-xs text-gray-500 mt-2 text-center">يتم حفظ نتيجة اختبارك بأمان (لغرض المراجعة).</p>
     </div>
 
-    <script>
-        // ************** وظائف التخزين المحلي (Local Storage) **************
-        const LOCAL_STORAGE_KEY = 'quiz_results_data_axial';
-        let currentQuizData = {}; // لحفظ بيانات الاختبار الحالي قبل تسجيل النتيجة النهائية
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, getDocs, limit, orderBy, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        /**
-         * جلب جميع نتائج الاختبار المحفوظة محليًا.
-         * @returns {Array} قائمة بالنتائج المحفوظة.
-         */
-        const getResultsFromLocalStorage = () => {
+        // ************** إعدادات وقيم Firebase الأساسية **************
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // مسار المجموعة العامة لحفظ النتائج (للسجل الداخلي)
+        const PUBLIC_RESULTS_COLLECTION = `artifacts/${appId}/public/data/quiz_results`;
+
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let userAnswers = [];
+        let userName = '';
+        let userPhone = '';
+        let currentResultDocId = null; // سيتم تعيينه كمعرف وثيقة Firestore
+
+        const quizContainer = document.getElementById('quiz-container');
+
+        // ************** تهيئة Firebase والمصادقة **************
+        const initializeFirebase = async () => {
             try {
-                const storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-                return storedData ? JSON.parse(storedData) : [];
-            } catch (e) {
-                console.error("Error reading from local storage:", e);
-                return [];
-            }
-        };
-
-        /**
-         * حفظ أو تحديث نتيجة اختبار محليًا.
-         * @param {Object} data - بيانات النتيجة المراد حفظها.
-         */
-        const saveResultToLocalStorage = (data) => {
-            try {
-                const results = getResultsFromLocalStorage();
-                
-                // البحث عن النتيجة الحالية بواسطة ID، أو إضافتها كجديدة
-                const existingIndex = results.findIndex(r => r.id === data.id);
-
-                if (existingIndex !== -1) {
-                    // تحديث النتيجة الموجودة
-                    results[existingIndex] = { ...results[existingIndex], ...data };
-                } else {
-                    // إضافة نتيجة جديدة
-                    results.push(data);
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase config is missing.");
                 }
 
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(results));
-                console.log("Quiz result saved/updated in local storage:", data.id);
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // تفعيل وضع التصحيح لرؤية السجلات
+                setLogLevel('debug'); 
+
+                // المصادقة
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        console.log("Authenticated successfully. User ID:", userId);
+                        renderEntryForm();
+                    } else {
+                        console.error("Authentication failed or logged out.");
+                        renderEntryForm(false);
+                    }
+                });
+
             } catch (e) {
-                console.error("Error writing to local storage:", e);
-                displayMessage('خطأ في التخزين', 'تعذر حفظ النتيجة على جهازك.');
+                console.error("Firebase Initialization Error:", e);
+                document.getElementById('loading-status').textContent = `فشل تهيئة الاتصال: ${e.message}.`;
+                renderEntryForm(false);
             }
         };
 
@@ -141,8 +150,33 @@
             `;
             document.body.appendChild(messageBox);
         };
+        
+        // ************** عمليات Firestore **************
+        const saveResultToFirestore = async (data) => {
+            if (!isAuthReady || !db || !currentResultDocId) {
+                console.error("Firestore not ready or Document ID missing for save.");
+                return;
+            }
+            try {
+                // استخدام doc() مع معرف الوثيقة الذي تم توليده في البداية
+                const resultRef = doc(db, PUBLIC_RESULTS_COLLECTION, currentResultDocId);
+                
+                // استخدام setDoc() مع merge: true لتحديث البيانات أو إضافتها لأول مرة
+                await setDoc(resultRef, { 
+                    ...data, 
+                    userId: userId,
+                    timestamp: serverTimestamp() // إضافة ختم زمني للخادم
+                }, { merge: true });
+                
+                console.log("Quiz result saved/updated in Firestore:", currentResultDocId);
+            } catch (e) {
+                console.error("Error writing to Firestore:", e);
+                // لا نعرض رسالة خطأ للمستخدم لأن الحفظ هنا ثانوي للمتطلب الحالي
+            }
+        };
 
-        // ************** أسئلة الاختبار **************
+
+        // ************** أسئلة الاختبار (نفس الأسئلة السابقة) **************
         const questions = [
             {
                 questionNumber: 1,
@@ -255,18 +289,9 @@
                 hint: "فكر في الأعضاء التي تقع في منطقة الصدر، والأعضاء التي تقع في منطقة العنق والرأس."
             }
         ];
-
-        let currentQuestionIndex = 0;
-        let score = 0;
-        let userAnswers = [];
-        let userName = '';
-        let userPhone = '';
-        let currentResultId = null; // سيتم تعيينه كطابع زمني (timestamp) فريد
-
-        const quizContainer = document.getElementById('quiz-container');
-
+        
         // ************** عرض نموذج إدخال البيانات **************
-        const renderEntryForm = () => {
+        const renderEntryForm = (isDbReady = true) => {
             quizContainer.innerHTML = `
                 <h1 class="text-3xl font-bold text-center text-blue-700 mb-6">اختبار الهيكل والدعامة</h1>
                 <p class="text-center text-gray-600 mb-8">أهلاً بك! يرجى إدخال بياناتك للمتابعة وبدء الاختبار.</p>
@@ -277,8 +302,8 @@
                         <input type="text" id="nameInput" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" placeholder="مثل: أحمد محمد" required>
                     </label>
                     <label class="block">
-                        <span class="text-gray-700 font-medium">رقم الهاتف:</span>
-                        <input type="tel" id="phoneInput" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" placeholder="للتواصل (اختياري)" pattern="[0-9]*">
+                        <span class="text-gray-700 font-medium">رقم الهاتف (مهم لاستلام الشهادة):</span>
+                        <input type="tel" id="phoneInput" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" placeholder="012XXXXXXXX" pattern="[0-9]*" required>
                     </label>
                 </div>
 
@@ -287,34 +312,35 @@
                         بدء الاختبار
                     </button>
                 </div>
-
-                <!-- جدول عرض نتائج المختبرين (محلي) -->
-                <div id="resultsTableContainer" class="mt-8">
-                    <!-- سيتم تحميل النتائج المحلية هنا -->
-                </div>
             `;
-
+            
             document.getElementById('startQuizBtn').addEventListener('click', handleEntryFormSubmit);
-            fetchAndRenderLocalResults();
         };
 
         // ************** التعامل مع إرسال النموذج **************
-        const handleEntryFormSubmit = () => {
+        const handleEntryFormSubmit = async () => {
             const nameInput = document.getElementById('nameInput');
             const phoneInput = document.getElementById('phoneInput');
 
             userName = nameInput.value.trim();
             userPhone = phoneInput.value.trim();
-            currentResultId = Date.now(); // تعيين معرف فريد جديد
-
-            if (userName.length < 3) {
-                displayMessage('خطأ', 'الرجاء إدخال اسم كامل وصحيح لا يقل عن 3 أحرف.');
+            
+            if (userName.length < 3 || userPhone.length < 5) {
+                displayMessage('خطأ', 'الرجاء إدخال اسم كامل ورقم هاتف صحيح للمتابعة.');
                 return;
             }
+            
+            // تهيئة معرف الوثيقة الجديد
+            if (isAuthReady && db) {
+                 currentResultDocId = doc(collection(db, PUBLIC_RESULTS_COLLECTION)).id; 
+            } else {
+                 // إذا فشل الاتصال بقاعدة البيانات، نستخدم معرف محلي لتجنب التعطل
+                 currentResultDocId = crypto.randomUUID(); 
+            }
+            
 
-            // حفظ البيانات الأولية في التخزين المحلي
-            currentQuizData = {
-                id: currentResultId,
+            // حفظ البيانات الأولية في Firestore (لا ننتظر النتيجة)
+            const initialData = {
                 name: userName,
                 phone: userPhone,
                 startTime: new Date().toISOString(),
@@ -323,7 +349,8 @@
                 totalQuestions: questions.length,
                 answers: []
             };
-            saveResultToLocalStorage(currentQuizData);
+            
+            saveResultToFirestore(initialData);
 
             // عرض أول سؤال
             currentQuestionIndex = 0;
@@ -332,7 +359,7 @@
             renderQuestion(currentQuestionIndex);
         };
 
-        // ************** عرض الأسئلة **************
+        // ************** عرض الأسئلة (نفس الوظيفة السابقة) **************
         const renderQuestion = (index) => {
             const q = questions[index];
             if (!q) {
@@ -343,8 +370,10 @@
             const totalQuestions = questions.length;
             const progress = ((index + 1) / totalQuestions) * 100;
 
+            // تم استبدال onclick="selectAnswer(this, ${index}, ${optIndex})" بـ event listener
+            // لكن لغرض التوافق مع مشكلة النطاق، سنعيد بناء الأزرار بـ onclick
             let optionsHtml = q.answerOptions.map((option, optIndex) => `
-                <div data-index="${optIndex}" class="question-option p-4 rounded-lg border-2 border-gray-300 hover:border-blue-500 cursor-pointer mb-3 transition duration-150 ease-in-out" onclick="selectAnswer(this, ${index}, ${optIndex})">
+                <div data-index="${optIndex}" class="question-option p-4 rounded-lg border-2 border-gray-300 hover:border-blue-500 cursor-pointer mb-3 transition duration-150 ease-in-out" onclick="window.selectAnswer(this, ${index}, ${optIndex})">
                     <p class="text-gray-800">${option.text}</p>
                 </div>
             `).join('');
@@ -362,10 +391,10 @@
                 </div>
 
                 <div class="mt-6 flex justify-between items-center">
-                    <button id="hintBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-full transition duration-300" onclick="showHint(${index})">
+                    <button id="hintBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-full transition duration-300" onclick="window.showHint(${index})">
                         تلميح
                     </button>
-                    <button id="nextBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-full transition duration-300 opacity-50 cursor-not-allowed" disabled onclick="moveToNextQuestion()">
+                    <button id="nextBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-full transition duration-300 opacity-50 cursor-not-allowed" disabled onclick="window.moveToNextQuestion()">
                         ${index === totalQuestions - 1 ? 'إنهاء الاختبار' : 'التالي'}
                     </button>
                 </div>
@@ -374,7 +403,7 @@
                 <div id="hint-display" class="mt-4 p-3 bg-yellow-100 text-yellow-800 rounded-lg text-sm" style="display:none;"></div>
             `;
 
-            // إعادة تحديد الخيار إذا كان مجاباً سابقاً
+            // إعادة تحديد الخيار إذا كان مجاباً سابقاً (إذا عاد المستخدم للسؤال)
             if (userAnswers[index] !== undefined) {
                 const selectedOption = document.querySelector(`.question-option[data-index="${userAnswers[index].selectedIndex}"]`);
                 if (selectedOption) {
@@ -385,7 +414,7 @@
             }
         };
 
-        // ************** تحديد الإجابة **************
+        // ************** تحديد الإجابة (متاح في نطاق النافذة للوصول من HTML) **************
         window.selectAnswer = (element, qIndex, optIndex) => {
             // إزالة التحديد من جميع الخيارات
             const options = element.parentNode.querySelectorAll('.question-option');
@@ -415,15 +444,15 @@
             document.getElementById('hint-display').style.display = 'none';
         };
 
-        // ************** عرض التلميح **************
+        // ************** عرض التلميح (متاح في نطاق النافذة) **************
         window.showHint = (index) => {
             const hintDisplay = document.getElementById('hint-display');
             hintDisplay.textContent = `تلميح: ${questions[index].hint}`;
             hintDisplay.style.display = 'block';
         };
 
-        // ************** الانتقال إلى السؤال التالي **************
-        const moveToNextQuestion = () => {
+        // ************** الانتقال إلى السؤال التالي (متاح في نطاق النافذة) **************
+        window.moveToNextQuestion = () => {
             if (userAnswers[currentQuestionIndex] === undefined) {
                 return;
             }
@@ -437,50 +466,71 @@
             score = userAnswers.filter(a => a.isCorrect).length;
             const totalQuestions = questions.length;
             
-            // تحديث بيانات الاختبار النهائية في التخزين المحلي
-            currentQuizData.score = score;
-            currentQuizData.completionTime = new Date().toISOString();
-            currentQuizData.quizStatus = 'completed';
-            currentQuizData.answers = userAnswers;
+            // تحديث بيانات الاختبار النهائية في Firestore
+            const finalData = {
+                score: score,
+                completionTime: new Date().toISOString(),
+                quizStatus: 'completed',
+                answers: userAnswers.map(a => ({
+                    questionNumber: a.questionNumber,
+                    isCorrect: a.isCorrect,
+                    selectedIndex: a.selectedIndex,
+                    rationale: a.rationale
+                }))
+            };
             
-            saveResultToLocalStorage(currentQuizData);
+            saveResultToFirestore(finalData);
 
-            renderCertificate(score, totalQuestions, currentQuizData.id);
+            renderCertificateRequest(score, totalQuestions);
         };
 
-        // ************** عرض الشهادة **************
-        const renderCertificate = (finalScore, total, resultId) => {
+        // ************** عرض رسالة طلب الشهادة (المعدلة) **************
+        const renderCertificateRequest = (finalScore, total) => {
             const percentage = Math.round((finalScore / total) * 100);
-            const status = percentage >= 70 ? 'تهانينا! لقد حققت أداءً ممتازاً.' : 'عمل جيد! تحتاج لبعض المراجعة للوصول للعلامة الكاملة.';
-            const degreeColor = percentage >= 70 ? 'text-green-700' : 'text-orange-700';
+            const statusMessage = percentage >= 70 ? 
+                'ممتاز! تستحق شهادة تقدير على هذا الأداء المتميز.' : 
+                'عمل جيد! نتيجتك رائعة وتستحق شهادة تقدير لجهدك.';
+            
+            // تم تغيير الرقم بناءً على طلبك
+            const whatsappNumber = '01208832071'; 
+            const whatsappMessage = `أهلاً، أنا ${userName} وأنهيت اختبار الهيكل والدعامة. نتيجتي هي ${finalScore}/${total} (${percentage}%). أرجو استلام شهادة التقدير الخاصة بي. رقم هاتفي: ${userPhone}`;
+            const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`;
 
             quizContainer.innerHTML = `
-                <div id="certificate" class="w-full mx-auto">
-                    <div class="certificate-ribbon text-sm md:text-base">شهادة تقدير</div>
-                    <h1 class="text-4xl font-extrabold text-gray-800 mt-4 mb-2">إنجاز رائع!</h1>
-                    <p class="text-xl text-blue-700 mb-6">مُقدمة إلى:</p>
+                <div id="certificate-request" class="w-full mx-auto">
+                    <div class="certificate-icon">🏆</div>
+                    <h1 class="text-4xl font-extrabold text-gray-800 mt-4 mb-2">تهانينا يا ${userName}!</h1>
+                    
+                    <p class="text-2xl font-bold mb-4 text-blue-700">${statusMessage}</p>
 
-                    <h2 class="text-5xl font-extrabold mb-8 text-yellow-800">${userName}</h2>
-                    <p class="text-2xl text-gray-700 mb-6">${status}</p>
-
-                    <p class="text-xl font-bold mt-8 mb-4">لقد أنهيت اختبار الهيكل المحوري والدعامة في النباتات بنجاح.</p>
-
-                    <div class="mt-10 mb-6 border-t-2 border-dashed border-gray-400 pt-6">
-                        <p class="text-3xl font-extrabold ${degreeColor}">
-                            الدرجة النهائية:
-                            <span class="text-4xl mx-2">${finalScore} / ${total}</span>
+                    <div class="mt-8 mb-8 border-t-2 border-dashed border-blue-400 pt-6">
+                        <p class="text-3xl font-extrabold text-gray-800">
+                            درجتك النهائية:
+                            <span class="text-4xl mx-2 text-green-600">${finalScore} / ${total}</span>
                         </p>
-                        <p class="text-2xl font-bold mt-2">
-                            النسبة المئوية: <span class="${degreeColor}">${percentage}%</span>
+                        <p class="text-xl font-medium mt-2">
+                            النسبة المئوية: <span class="text-green-600">${percentage}%</span>
                         </p>
                     </div>
 
-                    <p class="text-md text-gray-500 mt-4">رقم الهاتف المسجل: ${userPhone || 'غير مدخل'}</p>
+                    <p class="text-xl text-gray-700 mb-6 font-semibold leading-relaxed">
+                        لاستلام شهادة التقدير الخاصة بك والمُصممة باسمك ودرجتك، 
+                        <span class="text-red-700 font-extrabold">يرجى إرسال رسالة إلينا عبر الواتساب</span> 
+                        تتضمن اسمك ودرجتك على الرقم التالي:
+                    </p>
+                    
+                    <a href="${whatsappLink}" target="_blank" class="inline-block bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg text-lg">
+                        <span class="mr-2">&#x27A1;</span> إرسال النتيجة عبر الواتساب: ${whatsappNumber}
+                    </a>
+
+                    <p class="text-sm text-gray-500 mt-4">
+                        سيتم تجهيز الشهادة وإرسالها إليك على الفور بعد التأكد من النتيجة.
+                    </p>
                 </div>
 
                 <div class="mt-8 text-center space-x-4 space-x-reverse">
                     <button class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-6 rounded-full transition duration-300 shadow-lg" 
-                            onclick="renderQuizReview('${resultId}')">
+                            onclick="window.renderQuizReview('${currentResultDocId}')">
                         مراجعة إجاباتي
                     </button>
                     <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg" onclick="window.location.reload()">
@@ -489,71 +539,38 @@
                 </div>
             `;
         };
-        
-        // ************** جلب وعرض جميع النتائج المحلية **************
-        const fetchAndRenderLocalResults = () => {
-            const container = document.getElementById('resultsTableContainer');
-            if (!container) return;
 
-            const allResults = getResultsFromLocalStorage();
-            const completedResults = allResults.filter(res => res.quizStatus === 'completed');
+        // ************** عرض مراجعة الاختبار (Review) من قاعدة البيانات (متاح في نطاق النافذة) **************
+        window.renderQuizReview = async (resultId) => {
+            if (!resultId) {
+                displayMessage('خطأ', 'لا يوجد معرف نتيجة للمراجعة.');
+                return;
+            }
 
-            // فرز النتائج: أعلى درجة أولاً، ثم حسب وقت الانتهاء (الأحدث أولاً)
-            completedResults.sort((a, b) => {
-                if (a.score !== b.score) {
-                    return (b.score || 0) - (a.score || 0);
-                }
-                return new Date(b.completionTime) - new Date(a.completionTime);
-            });
-
-            const html = `
-                <h3 class="text-2xl font-bold text-gray-800 mb-4 mt-8 text-center">سجل النتائج المحلي (جهازك فقط)</h3>
-                <div class="overflow-x-auto results-table-wrapper">
-                    ${completedResults.length === 0 ? `
-                        <p class="py-4 text-center text-gray-500 bg-white rounded-lg shadow-md">لا توجد نتائج مسجلة محليًا حتى الآن.</p>
-                    ` : `
-                        <table class="min-w-full bg-white border border-gray-200 rounded-lg shadow-md">
-                            <thead class="bg-blue-600 text-white">
-                                <tr>
-                                    <th class="py-3 px-4 text-right whitespace-nowrap">الاسم</th>
-                                    <th class="py-3 px-4 text-center whitespace-nowrap">الدرجة</th>
-                                    <th class="py-3 px-4 text-center hidden sm:table-cell whitespace-nowrap">التاريخ</th>
-                                    <th class="py-3 px-4 text-center whitespace-nowrap">مراجعة</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${completedResults.map(res => {
-                                    const date = new Date(res.completionTime);
-                                    const dateString = date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' });
-                                    return `
-                                        <tr class="border-t hover:bg-gray-50">
-                                            <td class="py-3 px-4 text-right font-medium">${res.name}</td>
-                                            <td class="py-3 px-4 text-center text-lg font-bold ${res.score >= (res.totalQuestions * 0.7) ? 'text-green-600' : 'text-red-600'}">${res.score} / ${res.totalQuestions || 10}</td>
-                                            <td class="py-3 px-4 text-center text-sm hidden sm:table-cell">${dateString}</td>
-                                            <td class="py-3 px-4 text-center">
-                                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium" onclick="renderQuizReview('${res.id}')">
-                                                    مراجعة
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                    `}
-                </div>
-            `;
-            container.innerHTML = html;
-        };
-
-        // ************** عرض مراجعة الاختبار (Review) من التخزين المحلي **************
-        window.renderQuizReview = (resultId) => {
-            const allResults = getResultsFromLocalStorage();
-            // البحث عن النتيجة حسب الـ ID (الطابع الزمني)
-            const data = allResults.find(res => res.id === parseInt(resultId));
-
+            let data = null;
+            if (isAuthReady && db) {
+                 try {
+                    const resultRef = doc(db, PUBLIC_RESULTS_COLLECTION, resultId);
+                    // استخدام getDoc للحصول على وثيقة واحدة
+                    const docSnap = await getDoc(resultRef); 
+                    data = docSnap.exists() ? docSnap.data() : null;
+                 } catch (e) {
+                    console.error("Error loading review from Firestore:", e);
+                 }
+            } 
+            
+            // في حال عدم وجود بيانات في DB، نعتمد على البيانات المحلية (إذا كانت لا تزال موجودة)
             if (!data) {
-                displayMessage('خطأ', 'لم يتم العثور على نتيجة الاختبار المسجلة محليًا.');
+                data = {
+                    name: userName || 'المستخدم',
+                    score: score,
+                    totalQuestions: questions.length,
+                    answers: userAnswers,
+                };
+            }
+
+            if (!data || !data.answers) {
+                displayMessage('خطأ', 'لم يتم العثور على تفاصيل الإجابات للمراجعة.');
                 return;
             }
 
@@ -568,12 +585,12 @@
             questions.forEach((q, index) => {
                 const userAnswer = answers.find(a => a.questionNumber === index + 1);
                 const isCorrect = userAnswer ? userAnswer.isCorrect : false;
-                const userSelectedOption = userAnswer ? q.answerOptions[userAnswer.selectedIndex] : null;
+                const userSelectedOption = userAnswer && userAnswer.selectedIndex !== undefined ? q.answerOptions[userAnswer.selectedIndex] : null;
                 const userSelectedText = userSelectedOption ? userSelectedOption.text : 'لم يجب';
                 const correctAnswerOption = q.answerOptions.find(opt => opt.isCorrect);
                 const correctAnswerText = correctAnswerOption ? correctAnswerOption.text : 'غير متوفر';
                 
-                const rationaleText = userAnswer ? userAnswer.rationale : 'لم يتم توفير شرح لهذا السؤال.';
+                const rationaleText = userAnswer && userAnswer.rationale ? userAnswer.rationale : 'لم يتم توفير شرح لهذا السؤال.';
 
                 const cardClass = isCorrect ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50';
                 const icon = isCorrect ? '&#10004;' : '&#10008;'; // Checkmark or X
@@ -598,7 +615,7 @@
                         ` : ''}
 
                         <div class="mt-4 p-3 bg-gray-100 rounded-lg border-r-4 border-gray-400">
-                            <p class="font-bold text-gray-700 mb-1">الشرح (لماذا الإجابة صحيحة أو خطأ):</p>
+                            <p class="font-bold text-gray-700 mb-1">الشرح:</p>
                             <p class="text-sm text-gray-600">${rationaleText}</p>
                         </div>
                     </div>
@@ -617,8 +634,8 @@
             quizContainer.innerHTML = reviewHtml;
         };
         
-        // بدأ عرض النموذج عند تحميل الصفحة
-        document.addEventListener('DOMContentLoaded', renderEntryForm);
+        // بدأ التهيئة عند تحميل الصفحة
+        document.addEventListener('DOMContentLoaded', initializeFirebase);
     </script>
 </body>
 </html>
