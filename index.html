@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اختبار الهيكل والدعامة (تخزين محلي)</title>
+    <!-- تحميل Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* خط عربي جميل */
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 95%;
+            max-width: 768px;
+        }
+        .card {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        .question-option {
+            cursor: pointer;
+            border: 2px solid #e5e7eb;
+            transition: all 0.2s;
+        }
+        .question-option:hover {
+            border-color: #a8a8a8;
+            background-color: #f3f4f6;
+        }
+        .question-option.selected {
+            border-color: #2563eb;
+            background-color: #eff6ff;
+        }
+        /* تصميم الشهادة */
+        #certificate {
+            background: linear-gradient(135deg, #fefce8 0%, #fff7d6 100%);
+            border: 15px solid #d4af37; /* Gold border */
+            padding: 3rem;
+            text-align: center;
+            border-radius: 1rem;
+            position: relative;
+        }
+        .certificate-ribbon {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #d4af37;
+            color: white;
+            padding: 0.25rem 1.5rem;
+            border-radius: 0 0 10px 10px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        /* تصميم جدول النتائج ليتناسب مع الهواتف */
+        .results-table-wrapper {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+
+    <div class="container mx-auto">
+        <div id="quiz-container" class="card">
+            <!-- سيتم تحميل المحتوى هنا (النموذج، الأسئلة، الشهادة) -->
+        </div>
+        <p id="storageStatus" class="text-xs text-gray-500 mt-2 text-center">يتم حفظ النتائج محليًا على جهازك (Local Storage)</p>
+    </div>
+
+    <script>
+        // ************** وظائف التخزين المحلي (Local Storage) **************
+        const LOCAL_STORAGE_KEY = 'quiz_results_data_axial';
+        let currentQuizData = {}; // لحفظ بيانات الاختبار الحالي قبل تسجيل النتيجة النهائية
+
+        /**
+         * جلب جميع نتائج الاختبار المحفوظة محليًا.
+         * @returns {Array} قائمة بالنتائج المحفوظة.
+         */
+        const getResultsFromLocalStorage = () => {
+            try {
+                const storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return storedData ? JSON.parse(storedData) : [];
+            } catch (e) {
+                console.error("Error reading from local storage:", e);
+                return [];
+            }
+        };
+
+        /**
+         * حفظ أو تحديث نتيجة اختبار محليًا.
+         * @param {Object} data - بيانات النتيجة المراد حفظها.
+         */
+        const saveResultToLocalStorage = (data) => {
+            try {
+                const results = getResultsFromLocalStorage();
+                
+                // البحث عن النتيجة الحالية بواسطة ID، أو إضافتها كجديدة
+                const existingIndex = results.findIndex(r => r.id === data.id);
+
+                if (existingIndex !== -1) {
+                    // تحديث النتيجة الموجودة
+                    results[existingIndex] = { ...results[existingIndex], ...data };
+                } else {
+                    // إضافة نتيجة جديدة
+                    results.push(data);
+                }
+
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(results));
+                console.log("Quiz result saved/updated in local storage:", data.id);
+            } catch (e) {
+                console.error("Error writing to local storage:", e);
+                displayMessage('خطأ في التخزين', 'تعذر حفظ النتيجة على جهازك.');
+            }
+        };
+
+        // ************** رسالة خطأ مخصصة **************
+        const displayMessage = (title, message) => {
+            const existingMessage = document.getElementById('simple-message-box');
+            if (existingMessage) existingMessage.remove();
+
+            const messageBox = document.createElement('div');
+            messageBox.id = 'simple-message-box';
+            messageBox.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50';
+            messageBox.innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow-2xl w-80 text-center">
+                    <h3 class="text-xl font-bold mb-4 text-red-600">${title}</h3>
+                    <p class="text-gray-700 mb-6">${message}</p>
+                    <button class="bg-blue-600 text-white py-2 px-4 rounded-full" onclick="document.getElementById('simple-message-box').remove()">إغلاق</button>
+                </div>
+            `;
+            document.body.appendChild(messageBox);
+        };
+
+        // ************** أسئلة الاختبار **************
+        const questions = [
+            {
+                questionNumber: 1,
+                question: "ما هو الجزء المسؤول عن حماية الدماغ في الهيكل المحوري؟",
+                answerOptions: [
+                    { text: "القفص الصدري", isCorrect: false, rationale: "القفص الصدري يحمي القلب والرئتين." },
+                    { text: "الجمجمة", isCorrect: true, rationale: "الجمجمة، وتحديداً الجزء المخي منها، هو المسؤول الأساسي عن حماية الدماغ." },
+                    { text: "العمود الفقري", isCorrect: false, rationale: "العمود الفقري يحمي الحبل الشوكي ويوفر الدعامة للجسم." },
+                    { text: "عظام الحوض", isCorrect: false, rationale: "عظام الحوض تنتمي للهيكل الطرفي وتحمي أعضاء الحوض." }
+                ],
+                hint: "فكر في العضو الموجود داخل الجمجمة مباشرة."
+            },
+            {
+                questionNumber: 2,
+                question: "كم عدد الفقرات المكونة للعمود الفقري في الإنسان البالغ (فقرات حقيقية وملتحمة)؟",
+                answerOptions: [
+                    { text: "24 فقرة", isCorrect: false, rationale: "هذا هو عدد الفقرات الحقيقية فقط (العنقية، الصدرية، والقطنية)." },
+                    { text: "26 فقرة", isCorrect: false, rationale: "هذا العدد ناتج عن دمج العجز والفقرات العصعصية مع الفقرات الحقيقية في بعض التصنيفات غير الدقيقة." },
+                    { text: "33 فقرة", isCorrect: true, rationale: "يتكون العمود الفقري من 33 فقرة (7 عنقية، 12 صدرية، 5 قطنية، 5 عجزية ملتحمة، 4 عصعصية ملتحمة)." },
+                    { text: "12 فقرة", isCorrect: false, rationale: "هذا هو عدد الفقرات الصدرية فقط." }
+                ],
+                hint: "العدد يشمل جميع المجموعات: العنقية، الصدرية، القطنية، العجزية، والعصعصية."
+            },
+            {
+                questionNumber: 3,
+                question: "كم عدد أزواج الضلوع الحقيقية (المتصلة مباشرة بعظمة القص) في الإنسان؟",
+                answerOptions: [
+                    { text: "3 أزواج", isCorrect: false, rationale: "هذا هو عدد أزواج الضلوع العائمة." },
+                    { text: "7 أزواج", isCorrect: true, rationale: "الضلوع الحقيقية هي السبعة أزواج الأولى التي تتصل بعظمة القص مباشرة عن طريق غضاريفها." },
+                    { text: "10 أزواج", isCorrect: false, rationale: "هذا العدد لا يمثل أي مجموعة محددة من الضلوع." },
+                    { text: "12 زوجاً", isCorrect: false, rationale: "هذا هو العدد الكلي لأزواج الضلوع في القفص الصدري." }
+                ],
+                hint: "تذكر أن الضلوع تصنف إلى حقيقية، كاذبة، وعائمة بناءً على اتصالها بعظمة القص."
+            },
+            {
+                questionNumber: 4,
+                question: "ما هو المفهوم الأساسي للدعامة الفسيولوجية في النبات؟",
+                answerOptions: [
+                    { text: "ترسيب مواد صلبة على الجدر الخلوية", isCorrect: false, rationale: "هذا يصف الدعامة التركيبية، مثل ترسيب السليلوز أو اللجنين." },
+                    { text: "امتلاء الخلية بالماء وزيادة حجم الفجوة العصارية", isCorrect: true, rationale: "الدعامة الفسيولوجية تعتمد على دخول الماء للخلية بالخاصية الأسموزية مما يسبب ضغطاً على الجدار الخلوي." },
+                    { text: "تكوين أنسجة صلبة مثل الألياف الصخرية", isCorrect: false, rationale: "هذه نتيجة للدعامة التركيبية." },
+                    { text: "نمو الساق بشكل عمودي لمقاومة الرياح", isCorrect: false, rationale: "هذا وصف للنمو، وليس للآلية الداخلية للدعامة الفسيولوجية." }
+                ],
+                hint: "تذكر دور الماء والخاصية الأسموزية في هذه العملية."
+            },
+            {
+                questionNumber: 5,
+                question: "أي من المواد التالية تُستخدم لتقوية جدر الخلايا النباتية بشكل دائم، مما يساهم في الدعامة التركيبية؟",
+                answerOptions: [
+                    { text: "الماء", isCorrect: false, rationale: "الماء أساسي للدعامة الفسيولوجية المؤقتة." },
+                    { text: "الأملاح المعدنية", isCorrect: false, rationale: "الأملاح تساعد في سحب الماء أسموزياً، لكنها ليست مادة ترسيبية للدعامة التركيبية." },
+                    { text: "اللجنين (Lignin) والسليلوز (Cellulose)", isCorrect: true, rationale: "يتم ترسيب اللجنين والسليلوز لتقوية الجدر الخلوية في الأنسجة مثل الألياف والخلايا الحجرية، مما يوفر دعامة تركيبية دائمة." },
+                    { text: "البروتينات", isCorrect: false, rationale: "البروتينات تدخل في بناء الخلية ولا تستخدم عادةً للترسيب الهيكلي للدعامة." }
+                ],
+                hint: "هذه المواد هي التي تزيد من سمك وقوة الجدر الخلوية في الخلايا الميتة أو الناضجة."
+            },
+            {
+                questionNumber: 6,
+                question: "ما هي النتيجة الأكثر وضوحاً لفقدان النبات للدعامة الفسيولوجية؟",
+                answerOptions: [
+                    { text: "تحول لون الأوراق إلى الأصفرار", isCorrect: false, rationale: "اصفرار الأوراق عادةً ما يرتبط بنقص المغذيات أو الكلوروفيل." },
+                    { text: "ذبول وسقوط الأوراق", isCorrect: true, rationale: "الذبول ناتج عن فقدان الخلايا للماء ونقص ضغط الامتلاء، مما يؤدي إلى فقدان الدعامه المؤقتة." },
+                    { text: "زيادة سمك الجدار الخلوي", isCorrect: false, rationale: "هذا يحدث نتيجة للدعامة التركيبية." },
+                    { text: "توقف نمو الجذور", isCorrect: false, rationale: "توقف نمو الجذور قد يكون بسبب عوامل أخرى كالجفاف الشديد أو نقص الأكسجين." }
+                ],
+                hint: "لاحظ حالة النبات عندما لا يتم ريه لفترة طويلة."
+            },
+            {
+                questionNumber: 7,
+                question: "ما هو نوع الدعامة التي تعتمد على وجود الكيوتين على جدر خلايا البشرة في الأوراق؟",
+                answerOptions: [
+                    { text: "الدعامة الفسيولوجية فقط", isCorrect: false, rationale: "الكيوتين يساعد في الحفاظ على الماء الذي هو أساس الدعامة الفسيولوجية، لكن ترسيبه يعتبر دعامة تركيبية." },
+                    { text: "الدعامة التركيبية فقط", isCorrect: false, rationale: "ترسيب الكيوتين هو دعامة تركيبية، لكن دوره يخدم الدعامة الفسيولوجية بمنع فقدان الماء." },
+                    { text: "كلاهما (الفسيولوجية والتركيبية)", isCorrect: true, rationale: "ترسيب الكيوتين هو دعامة تركيبية، ولكنه يعمل على منع فقدان الماء، وبالتالي يحافظ على الدعامة الفسيولوجية." },
+                    { text: "الدعامة المؤقتة", isCorrect: false, rationale: "هذه ليست نوعاً رسمياً من الدعامة النباتية." }
+                ],
+                hint: "فكر في وظيفة الكيوتين على سطح الورقة وعلاقته بالماء داخل الخلية."
+            },
+            {
+                questionNumber: 8,
+                question: "ما هو الترتيب الصحيح لفقرات العمود الفقري من الأعلى إلى الأسفل؟",
+                answerOptions: [
+                    { text: "صدرية - عنقية - قطنية - عجزية - عصعصية", isCorrect: false, rationale: "الترتيب غير صحيح، حيث تبدأ بالفقرات العنقية." },
+                    { text: "عنقية - قطنية - صدرية - عجزية - عصعصية", isCorrect: false, rationale: "الترتيب غير صحيح، الفقرات الصدرية تلي العنقية مباشرة." },
+                    { text: "عنقية - صدرية - قطنية - عجزية - عصعصية", isCorrect: true, rationale: "هذا هو الترتيب الصحيح للفقرات من منطقة العنق نزولاً إلى نهاية العمود الفقري." },
+                    { text: "عنقية - صدرية - عجزية - قطنية - عصعصية", isCorrect: false, rationale: "الترتيب غير صحيح، الفقرات القطنية تسبق العجزية." }
+                ],
+                hint: "العمود الفقري يبدأ بفقرات العنق ويليها فقرات منطقة الصدر."
+            },
+            {
+                questionNumber: 9,
+                question: "في الدعامة التركيبية، تترسب مادة اللجنين بشكل خاص في جدر الخلايا لتقويتها. ما نوع الخلايا الذي يتميز بترسيب اللجنين بشكل كبير؟",
+                answerOptions: [
+                    { text: "الخلايا البرنشيمية (Parenchyma)", isCorrect: false, rationale: "الخلايا البرنشيمية عادةً ما تكون رقيقة الجدران وتعتمد على الدعامة الفسيولوجية." },
+                    { text: "الخلايا الكولنشيمية (Collenchyma)", isCorrect: false, rationale: "الخلايا الكولنشيمية تدعم عن طريق ترسيب السليلوز في الزوايا بشكل غير منتظم." },
+                    { text: "الخلايا الإسكلرنشيمية (Sclerenchyma)", isCorrect: true, rationale: "الخلايا الإسكلرنشيمية (مثل الألياف والخلايا الحجرية) تتميز بترسيب اللجنين، مما يجعلها قوية وصلبة وميتة في العادة." },
+                    { text: "الخلايا الميرستيمية (Meristematic)", isCorrect: false, rationale: "هذه خلايا انقسامية وليست مخصصة للدعامة التركيبية." }
+                ],
+                hint: "هذه الخلايا غالبًا ما تكون ميتة عند النضج وتوجد في الأجزاء الأكثر صلابة من النبات."
+            },
+            {
+                questionNumber: 10,
+                question: "أي مما يلي لا يعتبر من وظائف القفص الصدري؟",
+                answerOptions: [
+                    { text: "حماية القلب والرئتين", isCorrect: false, rationale: "هذه هي الوظيفة الأساسية للقفص الصدري." },
+                    { text: "المساعدة في عملية التنفس", isCorrect: false, rationale: "حركة الضلوع وغضاريفها أثناء التنفس تساعد في العملية." },
+                    { text: "المشاركة في تصنيع خلايا الدم", isCorrect: false, rationale: "النخاع العظمي في الضلوع يساهم في تكوين الدم." },
+                    { text: "دعامة الرأس وتحمل وزنه", isCorrect: true, rationale: "هذه هي الوظيفة الأساسية للفقرات العنقية في العمود الفقري." }
+                ],
+                hint: "فكر في الأعضاء التي تقع في منطقة الصدر، والأعضاء التي تقع في منطقة العنق والرأس."
+            }
+        ];
+
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let userAnswers = [];
+        let userName = '';
+        let userPhone = '';
+        let currentResultId = null; // سيتم تعيينه كطابع زمني (timestamp) فريد
+
+        const quizContainer = document.getElementById('quiz-container');
+
+        // ************** عرض نموذج إدخال البيانات **************
+        const renderEntryForm = () => {
+            quizContainer.innerHTML = `
+                <h1 class="text-3xl font-bold text-center text-blue-700 mb-6">اختبار الهيكل والدعامة</h1>
+                <p class="text-center text-gray-600 mb-8">أهلاً بك! يرجى إدخال بياناتك للمتابعة وبدء الاختبار.</p>
+
+                <div class="space-y-4">
+                    <label class="block">
+                        <span class="text-gray-700 font-medium">الاسم الكامل:</span>
+                        <input type="text" id="nameInput" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" placeholder="مثل: أحمد محمد" required>
+                    </label>
+                    <label class="block">
+                        <span class="text-gray-700 font-medium">رقم الهاتف:</span>
+                        <input type="tel" id="phoneInput" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring focus:ring-blue-200 focus:ring-opacity-50" placeholder="للتواصل (اختياري)" pattern="[0-9]*">
+                    </label>
+                </div>
+
+                <div class="mt-8 text-center">
+                    <button id="startQuizBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg">
+                        بدء الاختبار
+                    </button>
+                </div>
+
+                <!-- جدول عرض نتائج المختبرين (محلي) -->
+                <div id="resultsTableContainer" class="mt-8">
+                    <!-- سيتم تحميل النتائج المحلية هنا -->
+                </div>
+            `;
+
+            document.getElementById('startQuizBtn').addEventListener('click', handleEntryFormSubmit);
+            fetchAndRenderLocalResults();
+        };
+
+        // ************** التعامل مع إرسال النموذج **************
+        const handleEntryFormSubmit = () => {
+            const nameInput = document.getElementById('nameInput');
+            const phoneInput = document.getElementById('phoneInput');
+
+            userName = nameInput.value.trim();
+            userPhone = phoneInput.value.trim();
+            currentResultId = Date.now(); // تعيين معرف فريد جديد
+
+            if (userName.length < 3) {
+                displayMessage('خطأ', 'الرجاء إدخال اسم كامل وصحيح لا يقل عن 3 أحرف.');
+                return;
+            }
+
+            // حفظ البيانات الأولية في التخزين المحلي
+            currentQuizData = {
+                id: currentResultId,
+                name: userName,
+                phone: userPhone,
+                startTime: new Date().toISOString(),
+                quizStatus: 'started',
+                score: null,
+                totalQuestions: questions.length,
+                answers: []
+            };
+            saveResultToLocalStorage(currentQuizData);
+
+            // عرض أول سؤال
+            currentQuestionIndex = 0;
+            score = 0;
+            userAnswers = [];
+            renderQuestion(currentQuestionIndex);
+        };
+
+        // ************** عرض الأسئلة **************
+        const renderQuestion = (index) => {
+            const q = questions[index];
+            if (!q) {
+                calculateScore();
+                return;
+            }
+
+            const totalQuestions = questions.length;
+            const progress = ((index + 1) / totalQuestions) * 100;
+
+            let optionsHtml = q.answerOptions.map((option, optIndex) => `
+                <div data-index="${optIndex}" class="question-option p-4 rounded-lg border-2 border-gray-300 hover:border-blue-500 cursor-pointer mb-3 transition duration-150 ease-in-out" onclick="selectAnswer(this, ${index}, ${optIndex})">
+                    <p class="text-gray-800">${option.text}</p>
+                </div>
+            `).join('');
+
+            quizContainer.innerHTML = `
+                <div class="text-sm font-semibold text-blue-600 mb-2">السؤال ${index + 1} من ${totalQuestions}</div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mb-6">
+                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${progress}%"></div>
+                </div>
+
+                <h2 class="text-xl font-bold mb-6 text-gray-800">${q.question}</h2>
+
+                <div id="options-container">
+                    ${optionsHtml}
+                </div>
+
+                <div class="mt-6 flex justify-between items-center">
+                    <button id="hintBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-full transition duration-300" onclick="showHint(${index})">
+                        تلميح
+                    </button>
+                    <button id="nextBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-full transition duration-300 opacity-50 cursor-not-allowed" disabled onclick="moveToNextQuestion()">
+                        ${index === totalQuestions - 1 ? 'إنهاء الاختبار' : 'التالي'}
+                    </button>
+                </div>
+
+                <div id="feedback" class="mt-4 p-3 rounded-lg text-center" style="display:none;"></div>
+                <div id="hint-display" class="mt-4 p-3 bg-yellow-100 text-yellow-800 rounded-lg text-sm" style="display:none;"></div>
+            `;
+
+            // إعادة تحديد الخيار إذا كان مجاباً سابقاً
+            if (userAnswers[index] !== undefined) {
+                const selectedOption = document.querySelector(`.question-option[data-index="${userAnswers[index].selectedIndex}"]`);
+                if (selectedOption) {
+                    selectedOption.classList.add('selected');
+                }
+                document.getElementById('nextBtn').disabled = false;
+                document.getElementById('nextBtn').classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        };
+
+        // ************** تحديد الإجابة **************
+        window.selectAnswer = (element, qIndex, optIndex) => {
+            // إزالة التحديد من جميع الخيارات
+            const options = element.parentNode.querySelectorAll('.question-option');
+            options.forEach(opt => opt.classList.remove('selected'));
+
+            // تحديد الخيار الحالي
+            element.classList.add('selected');
+
+            // حفظ الإجابة
+            const q = questions[qIndex];
+            const isCorrect = q.answerOptions[optIndex].isCorrect;
+            const rationale = q.answerOptions[optIndex].rationale;
+
+            userAnswers[qIndex] = {
+                questionNumber: qIndex + 1,
+                selectedIndex: optIndex,
+                isCorrect: isCorrect,
+                rationale: rationale
+            };
+
+            // تفعيل زر التالي
+            const nextBtn = document.getElementById('nextBtn');
+            nextBtn.disabled = false;
+            nextBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            // إخفاء التلميح إذا كان معروضاً
+            document.getElementById('hint-display').style.display = 'none';
+        };
+
+        // ************** عرض التلميح **************
+        window.showHint = (index) => {
+            const hintDisplay = document.getElementById('hint-display');
+            hintDisplay.textContent = `تلميح: ${questions[index].hint}`;
+            hintDisplay.style.display = 'block';
+        };
+
+        // ************** الانتقال إلى السؤال التالي **************
+        const moveToNextQuestion = () => {
+            if (userAnswers[currentQuestionIndex] === undefined) {
+                return;
+            }
+
+            currentQuestionIndex++;
+            renderQuestion(currentQuestionIndex);
+        };
+
+        // ************** حساب النتيجة وحفظها **************
+        const calculateScore = () => {
+            score = userAnswers.filter(a => a.isCorrect).length;
+            const totalQuestions = questions.length;
+            
+            // تحديث بيانات الاختبار النهائية في التخزين المحلي
+            currentQuizData.score = score;
+            currentQuizData.completionTime = new Date().toISOString();
+            currentQuizData.quizStatus = 'completed';
+            currentQuizData.answers = userAnswers;
+            
+            saveResultToLocalStorage(currentQuizData);
+
+            renderCertificate(score, totalQuestions, currentQuizData.id);
+        };
+
+        // ************** عرض الشهادة **************
+        const renderCertificate = (finalScore, total, resultId) => {
+            const percentage = Math.round((finalScore / total) * 100);
+            const status = percentage >= 70 ? 'تهانينا! لقد حققت أداءً ممتازاً.' : 'عمل جيد! تحتاج لبعض المراجعة للوصول للعلامة الكاملة.';
+            const degreeColor = percentage >= 70 ? 'text-green-700' : 'text-orange-700';
+
+            quizContainer.innerHTML = `
+                <div id="certificate" class="w-full mx-auto">
+                    <div class="certificate-ribbon text-sm md:text-base">شهادة تقدير</div>
+                    <h1 class="text-4xl font-extrabold text-gray-800 mt-4 mb-2">إنجاز رائع!</h1>
+                    <p class="text-xl text-blue-700 mb-6">مُقدمة إلى:</p>
+
+                    <h2 class="text-5xl font-extrabold mb-8 text-yellow-800">${userName}</h2>
+                    <p class="text-2xl text-gray-700 mb-6">${status}</p>
+
+                    <p class="text-xl font-bold mt-8 mb-4">لقد أنهيت اختبار الهيكل المحوري والدعامة في النباتات بنجاح.</p>
+
+                    <div class="mt-10 mb-6 border-t-2 border-dashed border-gray-400 pt-6">
+                        <p class="text-3xl font-extrabold ${degreeColor}">
+                            الدرجة النهائية:
+                            <span class="text-4xl mx-2">${finalScore} / ${total}</span>
+                        </p>
+                        <p class="text-2xl font-bold mt-2">
+                            النسبة المئوية: <span class="${degreeColor}">${percentage}%</span>
+                        </p>
+                    </div>
+
+                    <p class="text-md text-gray-500 mt-4">رقم الهاتف المسجل: ${userPhone || 'غير مدخل'}</p>
+                </div>
+
+                <div class="mt-8 text-center space-x-4 space-x-reverse">
+                    <button class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-6 rounded-full transition duration-300 shadow-lg" 
+                            onclick="renderQuizReview('${resultId}')">
+                        مراجعة إجاباتي
+                    </button>
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg" onclick="window.location.reload()">
+                        بدء اختبار جديد
+                    </button>
+                </div>
+            `;
+        };
+        
+        // ************** جلب وعرض جميع النتائج المحلية **************
+        const fetchAndRenderLocalResults = () => {
+            const container = document.getElementById('resultsTableContainer');
+            if (!container) return;
+
+            const allResults = getResultsFromLocalStorage();
+            const completedResults = allResults.filter(res => res.quizStatus === 'completed');
+
+            // فرز النتائج: أعلى درجة أولاً، ثم حسب وقت الانتهاء (الأحدث أولاً)
+            completedResults.sort((a, b) => {
+                if (a.score !== b.score) {
+                    return (b.score || 0) - (a.score || 0);
+                }
+                return new Date(b.completionTime) - new Date(a.completionTime);
+            });
+
+            const html = `
+                <h3 class="text-2xl font-bold text-gray-800 mb-4 mt-8 text-center">سجل النتائج المحلي (جهازك فقط)</h3>
+                <div class="overflow-x-auto results-table-wrapper">
+                    ${completedResults.length === 0 ? `
+                        <p class="py-4 text-center text-gray-500 bg-white rounded-lg shadow-md">لا توجد نتائج مسجلة محليًا حتى الآن.</p>
+                    ` : `
+                        <table class="min-w-full bg-white border border-gray-200 rounded-lg shadow-md">
+                            <thead class="bg-blue-600 text-white">
+                                <tr>
+                                    <th class="py-3 px-4 text-right whitespace-nowrap">الاسم</th>
+                                    <th class="py-3 px-4 text-center whitespace-nowrap">الدرجة</th>
+                                    <th class="py-3 px-4 text-center hidden sm:table-cell whitespace-nowrap">التاريخ</th>
+                                    <th class="py-3 px-4 text-center whitespace-nowrap">مراجعة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${completedResults.map(res => {
+                                    const date = new Date(res.completionTime);
+                                    const dateString = date.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' });
+                                    return `
+                                        <tr class="border-t hover:bg-gray-50">
+                                            <td class="py-3 px-4 text-right font-medium">${res.name}</td>
+                                            <td class="py-3 px-4 text-center text-lg font-bold ${res.score >= (res.totalQuestions * 0.7) ? 'text-green-600' : 'text-red-600'}">${res.score} / ${res.totalQuestions || 10}</td>
+                                            <td class="py-3 px-4 text-center text-sm hidden sm:table-cell">${dateString}</td>
+                                            <td class="py-3 px-4 text-center">
+                                                <button class="text-sm text-blue-600 hover:text-blue-800 font-medium" onclick="renderQuizReview('${res.id}')">
+                                                    مراجعة
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    `}
+                </div>
+            `;
+            container.innerHTML = html;
+        };
+
+        // ************** عرض مراجعة الاختبار (Review) من التخزين المحلي **************
+        window.renderQuizReview = (resultId) => {
+            const allResults = getResultsFromLocalStorage();
+            // البحث عن النتيجة حسب الـ ID (الطابع الزمني)
+            const data = allResults.find(res => res.id === parseInt(resultId));
+
+            if (!data) {
+                displayMessage('خطأ', 'لم يتم العثور على نتيجة الاختبار المسجلة محليًا.');
+                return;
+            }
+
+            const answers = data.answers || [];
+
+            let reviewHtml = `
+                <h2 class="text-3xl font-bold text-blue-700 mb-6 text-center">مراجعة اختبار ${data.name || 'المستخدم'}</h2>
+                <p class="text-center text-xl font-medium mb-8">الدرجة: ${data.score} / ${data.totalQuestions}</p>
+                <div class="space-y-6">
+            `;
+
+            questions.forEach((q, index) => {
+                const userAnswer = answers.find(a => a.questionNumber === index + 1);
+                const isCorrect = userAnswer ? userAnswer.isCorrect : false;
+                const userSelectedOption = userAnswer ? q.answerOptions[userAnswer.selectedIndex] : null;
+                const userSelectedText = userSelectedOption ? userSelectedOption.text : 'لم يجب';
+                const correctAnswerOption = q.answerOptions.find(opt => opt.isCorrect);
+                const correctAnswerText = correctAnswerOption ? correctAnswerOption.text : 'غير متوفر';
+                
+                const rationaleText = userAnswer ? userAnswer.rationale : 'لم يتم توفير شرح لهذا السؤال.';
+
+                const cardClass = isCorrect ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50';
+                const icon = isCorrect ? '&#10004;' : '&#10008;'; // Checkmark or X
+
+                reviewHtml += `
+                    <div class="card p-4 border-l-8 ${cardClass}">
+                        <div class="flex items-start mb-3">
+                            <span class="text-2xl mr-3 font-extrabold ${isCorrect ? 'text-green-600' : 'text-red-600'}">${icon}</span>
+                            <p class="text-lg font-semibold text-gray-800">${index + 1}. ${q.question}</p>
+                        </div>
+
+                        <p class="mb-2">
+                            <span class="font-bold text-gray-600">إجابتك:</span>
+                            <span class="${isCorrect ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}">${userSelectedText}</span>
+                        </p>
+
+                        ${!isCorrect ? `
+                            <p class="mb-2">
+                                <span class="font-bold text-gray-600">الإجابة الصحيحة:</span>
+                                <span class="text-green-600 font-medium">${correctAnswerText}</span>
+                            </p>
+                        ` : ''}
+
+                        <div class="mt-4 p-3 bg-gray-100 rounded-lg border-r-4 border-gray-400">
+                            <p class="font-bold text-gray-700 mb-1">الشرح (لماذا الإجابة صحيحة أو خطأ):</p>
+                            <p class="text-sm text-gray-600">${rationaleText}</p>
+                        </div>
+                    </div>
+                `;
+            });
+
+            reviewHtml += `
+                </div>
+                <div class="mt-8 text-center">
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg" onclick="window.location.reload()">
+                        العودة للصفحة الرئيسية
+                    </button>
+                </div>
+            `;
+
+            quizContainer.innerHTML = reviewHtml;
+        };
+        
+        // بدأ عرض النموذج عند تحميل الصفحة
+        document.addEventListener('DOMContentLoaded', renderEntryForm);
+    </script>
+</body>
+</html>
